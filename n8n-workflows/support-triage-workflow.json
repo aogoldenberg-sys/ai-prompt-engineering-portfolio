@@ -1,0 +1,146 @@
+{
+  "name": "AI Support Ticket Triage",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-ticket",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node_webhook",
+      "name": "Webhook — Incoming Ticket",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise ticket payload from any source (email, Telegram, web form)\nconst body = $input.first().json;\nreturn [{\n  json: {\n    ticket_id: body.id || `ticket_${Date.now()}`,\n    text: body.message || body.text || body.body || '',\n    source: body.source || 'unknown',\n    customer_id: body.customer_id || null,\n    received_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "node_normalize",
+      "name": "Normalise Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "model": "claude-sonnet-4-5",
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "={{ 'You are a support triage specialist. Classify the following ticket and respond ONLY in valid JSON with keys: priority (P1/P2/P3/P4), category (billing|auth|performance|data|ui|feature_request|other), reasoning (string, max 2 sentences), action (string, one recommended next step), escalate_immediately (boolean).\n\nTicket: ' + $json.text }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 400,
+          "temperature": 0
+        }
+      },
+      "id": "node_claude",
+      "name": "Claude — Triage",
+      "type": "n8n-nodes-base.anthropic",
+      "typeVersion": 1,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude's JSON response and merge with ticket metadata\nconst ticket = $('Normalise Payload').first().json;\nlet triage;\ntry {\n  const raw = $input.first().json.content[0].text;\n  // Strip markdown fences if model adds them\n  const clean = raw.replace(/```json?\\n?|```/g, '').trim();\n  triage = JSON.parse(clean);\n} catch(e) {\n  triage = { priority: 'P3', category: 'other', reasoning: 'Parse error', action: 'Manual review required', escalate_immediately: false };\n}\n\nreturn [{\n  json: {\n    ...ticket,\n    ...triage,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "node_parse",
+      "name": "Parse Triage Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false},
+          "conditions": [
+            {
+              "id": "cond_p1",
+              "leftValue": "={{ $json.priority }}",
+              "rightValue": "P1",
+              "operator": {"type": "string", "operation": "equals"}
+            }
+          ]
+        }
+      },
+      "id": "node_if_p1",
+      "name": "Is P1?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "YOUR_ONCALL_CHAT_ID",
+        "text": "=🚨 *P1 TICKET* `{{ $json.ticket_id }}`\n\n*Category:* {{ $json.category }}\n*Reasoning:* {{ $json.reasoning }}\n*Action:* {{ $json.action }}\n\n_Received: {{ $json.received_at }}_",
+        "additionalFields": {"parse_mode": "Markdown"}
+      },
+      "id": "node_tg_alert",
+      "name": "Telegram — P1 Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1300, 180],
+      "credentials": {
+        "telegramApi": {"id": "YOUR_CREDENTIAL_ID", "name": "Telegram Bot"}
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "mode": "id", "value": "YOUR_GOOGLE_SHEET_ID"},
+        "sheetName": {"__rl": true, "mode": "name", "value": "Tickets"},
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        }
+      },
+      "id": "node_sheets",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1300, 420],
+      "credentials": {
+        "googleSheetsOAuth2Api": {"id": "YOUR_CREDENTIAL_ID", "name": "Google Sheets"}
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ticket_id: $('Parse Triage Result').first().json.ticket_id, priority: $('Parse Triage Result').first().json.priority, category: $('Parse Triage Result').first().json.category, action: $('Parse Triage Result').first().json.action }) }}"
+      },
+      "id": "node_response",
+      "name": "Respond to Caller",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1520, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Incoming Ticket": {"main": [[{"node": "Normalise Payload", "type": "main", "index": 0}]]},
+    "Normalise Payload": {"main": [[{"node": "Claude — Triage", "type": "main", "index": 0}]]},
+    "Claude — Triage": {"main": [[{"node": "Parse Triage Result", "type": "main", "index": 0}]]},
+    "Parse Triage Result": {"main": [[{"node": "Is P1?", "type": "main", "index": 0}]]},
+    "Is P1?": {
+      "main": [
+        [{"node": "Telegram — P1 Alert", "type": "main", "index": 0}],
+        [{"node": "Log to Google Sheets", "type": "main", "index": 0}]
+      ]
+    },
+    "Telegram — P1 Alert": {"main": [[{"node": "Log to Google Sheets", "type": "main", "index": 0}]]},
+    "Log to Google Sheets": {"main": [[{"node": "Respond to Caller", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "staticData": null,
+  "tags": ["ai", "support", "triage"]
+}
