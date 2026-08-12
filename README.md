@@ -67,22 +67,18 @@ I build conversational AI assistants and end-to-end automation pipelines — not
 
 **Problem:** Russian businesses receive government enforcement documents — tax authority demands, bailiff notices, Rospotrebnadzor warnings — and don't know what to do with them. Legal advice costs money and takes days.
 
-**Solution:** Built a full-stack document analysis pipeline inside a CRM product:
+**Solution:** Full-stack document analysis pipeline embedded in a commercial CRM product:
 
 - **Two-branch classification** — uploaded PDF or image is classified by Claude into `requirement` (checklist of requested documents) or `advisory` (substantive legal act requiring action). Different AI pipelines handle each branch.
-- **Advisory pipeline with extended thinking:** Claude Sonnet with `thinking: { budget_tokens: 4000 }` analyses the document against a structured `LEGAL_BASIS` registry (norms, conditions, exceptions, deadlines per authority type). Returns a plain-Russian JSON advisory: what the document means, when the measure is challengeable (`notApplicable[]`), concrete next steps with deadlines, and clarifying questions that change the legal conclusion.
+- **Advisory pipeline with extended thinking:** Claude Sonnet with `thinking: { budget_tokens: 4000 }` analyses the document against a structured `LEGAL_BASIS` registry (norms, conditions, exceptions, deadlines per authority type). Returns a plain-Russian JSON advisory: what the document means, when the measure is challengeable, concrete next steps with deadlines, and clarifying questions that change the legal conclusion.
 - **Iterative Q&A refinement:** user answers the advisory's questions; optionally attaches supporting documents (extracted server-side). Second Claude call produces a `verdict` — a definitive position on whether the measure is applicable and what to do first.
 - **Document drafting:** user selects from a list of offered documents; a single Claude call drafts all of them in one structured JSON response. Available as `.txt`, Word-compatible `.doc`, and clipboard copy.
 - **Printable output:** user-facing instruction and privacy policy open as standalone HTML pages (no PDF library dependency) with company letterhead and `@media print` CSS — print-to-PDF via browser.
 
-**Technical decisions worth noting:**
-- `LEGAL_BASIS` registry in `@crm/core` is the single source of truth — Claude is explicitly forbidden from using norms not in the registry, eliminating hallucination of statute numbers.
-- `advisoryVersion` counter passed as part of `key` to `AdvisoryView` — forces React to destroy and recreate the child on each new advisory, resetting local state without prop drilling.
-- Worker endpoints are fully synchronous (Cloudflare Workers constraint) — the entire classify -> advise pipeline runs in one HTTP request within the 30 s wall clock limit.
+**Live product:** [opentgp.ru/kairos/app](https://opentgp.ru/kairos/app)  
+**Architecture & patterns:** [crm-compliance-showcase](https://github.com/aogoldenberg-sys/crm-compliance-showcase) *(production code is private)*
 
-**Stack:** React · TypeScript · Cloudflare Workers · Firebase Firestore · Claude API (Haiku for classify, Sonnet with extended thinking for advise) · FTP deploy
-
-**Repo:** [crm-living-bp](https://github.com/aogoldenberg-sys/crm-living-bp) — `docs/compliance/DEVELOPER_GUIDE.md`
+**Stack:** React · TypeScript · Cloudflare Workers · Firebase Firestore · Claude API (Haiku for classify, Sonnet with extended thinking for advise)
 
 ---
 
@@ -91,7 +87,7 @@ I build conversational AI assistants and end-to-end automation pipelines — not
 ```
 prompt-samples/         <- Annotated prompt templates (structured output, function calling, CoT/few-shot)
 n8n-workflows/          <- Anonymised n8n workflow export + description
-code-samples/           <- Runnable code snippets (LLM API call, serverless webhook handler)
+code-samples/           <- Generic runnable snippets (LLM structured call, serverless webhook handler)
 ```
 
 ---
@@ -146,16 +142,16 @@ Open to freelance projects, part-time, and full-time remote roles.
 
 **Задача:** Бизнес получает требования от налоговой, приставов, Роспотребнадзора — и не понимает, что делать.
 
-**Решение:** Двухветочный пайплайн в CRM:
+**Решение:** Двухветочный AI-пайплайн в коммерческом CRM:
 - Claude Haiku классифицирует документ (PDF/фото) → `requirement` или `advisory`.
-- Claude Sonnet с extended thinking разбирает акт по реестру правовых норм — на простом русском: суть, когда можно оспорить, конкретные шаги с дедлайнами.
+- Claude Sonnet с extended thinking разбирает акт по реестру правовых норм — суть, когда можно оспорить, конкретные шаги с дедлайнами.
 - Итеративное Q&A: клиент отвечает на вопросы, прикладывает документы → второй вызов Claude выдаёт `verdict`.
-- Составление документов: одним JSON-ответом, скачивание `.txt` / `.doc` / буфер.
-- Инструкции открываются HTML-страницей с бланком компании, PDF через браузер без зависимостей.
+- Составление документов одним JSON-ответом. Скачивание `.txt` / `.doc` / буфер.
 
-**Стек:** React · TypeScript · Cloudflare Workers · Firebase Firestore · Claude API · FTP
+**Живой продукт:** [opentgp.ru/kairos/app](https://opentgp.ru/kairos/app)  
+**Архитектура и паттерны:** [crm-compliance-showcase](https://github.com/aogoldenberg-sys/crm-compliance-showcase) *(продуктовый код закрыт)*
 
-**Репо:** [crm-living-bp](https://github.com/aogoldenberg-sys/crm-living-bp) — `docs/compliance/DEVELOPER_GUIDE.md`
+**Стек:** React · TypeScript · Cloudflare Workers · Firebase Firestore · Claude API
 
 ---
 
